@@ -1,0 +1,1 @@
+2026-02-05 14:55:54.903 WARN  [http-nio-8080-exec-6] SLOW_SQL - [SLOW_SQL] cost=247ms, success=true, type=PREPARED, batch=false, sql=select sleep(0.25), params=[[]]

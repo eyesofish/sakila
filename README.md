@@ -1,80 +1,33 @@
-The Sakila example database
-===========================
+# Sakila 数据库超简单介绍
 
-The Sakila database is a nicely normalised database modelling a DVD rental store (for those of you old enough to remember what that is). Its design includes a few nice features:
+Sakila 是一个“录像出租店”示例数据库，方便练习 SQL。下面用最白话的方式帮你记住它的骨架，导入 MySQL Docker 也一并给步骤。
 
-- Many to many relationships
-- Multiple paths between entities (e.g. film-inventory-rental-payment vs film-inventory-store-customer-payment) to practice joins
-- Consistent naming of columns
-  - Primary keys are called `[tablename]_[id]`
-  - Foreign keys are called like their referenced primary key, if possible. This allows for using `JOIN .. USING` syntax where supported
-  - Relationship tables do not have any surrogate keys but use composite primary keys
-  - Every table has a `last_update` audit column
-  - A generated data set of a reasonable size is available
+## 核心表，一口气记住
 
-ERD
-===
+- 电影资料：`film`（片名、时长、租金等），`language`（语言字典），演员在 `actor`；电影和演员多对多用 `film_actor`；类型标签在 `category`，和电影的对应关系放 `film_category`；`film_text` 只是为了全文检索存标题+简介。
+- 门店和员工：`store` 是门店，指定一名 `staff` 做店长；每个 `staff` 也属于某个 `store` 并有登录帐号。
+- 地址体系：`country` → `city` → `address`，三张表串起来，门店、员工、顾客都引用同样的地址链。
+- 顾客：`customer` 记录顾客信息，关联所属门店 (`store_id`) 和住址 (`address_id`)，`active` 标志表示还能不能租。
+- 库存（最关键的纽带）：`inventory` 表示“某店里某部电影的一张实体光盘”，外键连到 `film` 和 `store`。
+- 业务流水：`rental` 记录“谁在什么时候从哪家店租了哪张盘，由哪个店员办的”；`payment` 记录付款，连到 `rental`、`customer`、`staff`。先有租借再有付款。
+- 其他：`store` 和 `staff` 也引用 `address`；脚本里还有 `payment`、`rental` 的触发器/索引等用于性能与数据一致性。
 
-[![ERD](https://www.jooq.org/img/sakila.png)](https://www.jooq.org/sakila)
+## 在 Docker MySQL 中快速导入
 
-With this database, we can try out some nice SQL queries, e.g. by using PostgreSQL syntax:
+```bash
+# 1) 启动容器（示例密码：pass）
+docker run -d --name sakila-mysql -e MYSQL_ROOT_PASSWORD=pass -p 3306:3306 mysql:8
 
-**Actor with most films (ignoring ties)**
+# 2) 导入表结构
+docker exec -i sakila-mysql mysql -uroot -ppass < mysql-sakila-db/mysql-sakila-schema.sql
 
-```sql
-SELECT first_name, last_name, count(*) films
-FROM actor AS a
-JOIN film_actor AS fa USING (actor_id)
-GROUP BY actor_id, first_name, last_name
-ORDER BY films DESC
-LIMIT 1;
+# 3) 导入示例数据
+docker exec -i sakila-mysql mysql -uroot -ppass < mysql-sakila-db/mysql-sakila-insert-data.sql
 ```
 
-Yields:
+完成后，容器里的 `sakila` 库就建好并填充了示例数据。
 
-```
-first_name    last_name    films
---------------------------------
-GINA          DEGENERES       42
-```
+## 重置或清空（可选）
 
-**Cumulative revenue of all stores**
-
-```sql
-SELECT payment_date, amount, sum(amount) OVER (ORDER BY payment_date)
-FROM (
-  SELECT CAST(payment_date AS DATE) AS payment_date, SUM(amount) AS amount
-  FROM payment
-  GROUP BY CAST(payment_date AS DATE)
-) p
-ORDER BY payment_date;
-```
-
-Yields:
-
-```
-payment_date       amount         sum
--------------------------------------
-2005-05-24          29.92       29.92
-2005-05-25         573.63      603.55
-2005-05-26         754.26     1357.81
-2005-05-27         685.33     2043.14
-2005-05-28         804.04     2847.18
-2005-05-29         648.46     3495.64
-2005-05-30         628.42     4124.06
-2005-05-31         700.37     4824.43
-2005-06-14          57.84     4882.27
-2005-06-15        1376.52     6258.79
-2005-06-16        1349.76     7608.55
-2005-06-17        1332.75     8941.30
-...
-```
-
-History
-=======
-
-The Sakila example database was originally developed by Mike Hillyer of the MySQL AB documentation team. it was ported to other databases by DB Software Laboratory 
-
-License: BSD
-Copyright DB Software Laboratory
-http://www.etl-tools.com
+- 只清空数据：`mysql-sakila-db/mysql-sakila-delete-data.sql`
+- 连同表一起删除：`mysql-sakila-db/mysql-sakila-drop-objects.sql`
