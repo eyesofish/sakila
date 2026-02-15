@@ -1,672 +1,195 @@
-# MyBatis-Plus 操作 Sakila 数据库完整傻瓜教程
+# Sakila 实战对照：JPA vs MyBatis-Plus（按当前项目）
 
-## 目录
-1. [前置准备](#前置准备)
-2. [项目初始化](#项目初始化)
-3. [MyBatis-Plus 配置](#mybatis-plus-配置)
-4. [实体类创建](#实体类创建)
-5. [Mapper 接口开发](#mapper-接口开发)
-6. [Service 层开发](#service-层开发)
-7. [Controller 层开发](#controller-层开发)
-8. [实战案例](#实战案例)
-9. [高级特性](#高级特性)
+这份文档不是模板教程，而是基于你现在 `D:\Github\sakila` 里的真实代码来讲。
 
-## 前置准备
+目标只有一个：你读完后，能明确知道 JPA 和 MyBatis-Plus 在这个项目里到底差在哪、怎么选。
 
-### 知识点：MyBatis-Plus 简介
-MyBatis-Plus (简称 MP) 是一个 MyBatis 的增强工具，在 MyBatis 的基础上只做增强不做改变，为简化开发、提高效率而生。
+---
 
-**核心特性：**
-- 无侵入：只做增强不修改，引入即可用
-- 损耗小：启动即会自动注入基本 CRUD，性能基本无损耗
-- 强大的 CRUD 操作：内置通用 Mapper、通用 Service
-- 支持 Lambda 形式调用：利用 Java8 的 Lambda 表达式
-- 支持主键自动生成策略
+## 0) 先看当前项目状态（非常关键）
 
-### 准备工作
-1. 确保你的 Docker 已经启动了 MySQL 数据库，并且 sakila 数据库已准备好
-2. 确认 Sakila 数据库已经导入到 MySQL 中
-3. 确保你有 Maven、Java 21 环境
+你现在的 `demo` 项目已经是 **MyBatis-Plus 主线**：
 
-## 项目初始化
+- 已保留依赖：`mybatis-plus-spring-boot3-starter`（`demo/pom.xml`）
+- 已移除依赖：`spring-boot-starter-data-jpa`（`demo/pom.xml`）
+- 已有 MP 配置：`demo/src/main/java/com/example/demo/sakila/config/MybatisPlusConfig.java`
+- 已有 Mapper：`demo/src/main/java/com/example/demo/sakila/mapper/FilmMapper.java`
+- Service 已改为调用 Mapper：`demo/src/main/java/com/example/demo/sakila/service/FilmService.java`
+- Controller 对外 API 没变：`demo/src/main/java/com/example/demo/sakila/web/FilmController.java`
+- 原 JPA Repository 已删除：`demo/src/main/java/com/example/demo/sakila/repository/FilmRepository.java`
 
-### 步骤 1：检查现有项目结构
-当前项目位于 `D:\Github\sakila\demo`，我们将在该 Spring Boot 项目基础上进行开发。
+一句话总结当前结构：
 
-### 步骤 2：验证 pom.xml 依赖
-确认 [pom.xml](file:///d:/Github/sakila/demo/pom.xml) 中已包含必要的依赖：
-- `mybatis-plus-boot-starter`
-- `mysql-connector-j`
-- `spring-boot-starter-data-jpa`
+`Controller -> Service -> MyBatis-Plus Mapper -> MySQL`
 
-如果缺少 MyBatis-Plus 依赖，添加以下依赖：
-```xml
-<dependency>
-    <groupId>com.baomidou</groupId>
-    <artifactId>mybatis-plus-boot-starter</artifactId>
-    <version>3.5.7</version>
-</dependency>
-```
+---
 
-### 步骤 3：更新数据库连接配置
-编辑 [application.yaml](file:///d:/Github/sakila/demo/src/main/resources/application.yaml) 文件，确保配置如下：
-```yaml
-spring:
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/sakila?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&nullCatalogMeansCurrent=true
-    username: root
-    password: pass
-    type: com.zaxxer.hikari.HikariDataSource
+## 1) 用同一个需求看差异（最容易理解）
 
-# MyBatis-Plus 配置
-mybatis-plus:
-  mapper-locations: classpath*:/mapper/**/*Mapper.xml
-  type-aliases-package: com.example.demo.entity
-  configuration:
-    map-underscore-to-camel-case: true
-    cache-enabled: false
-    lazy-loading-enabled: false
-    aggressive-lazy-loading: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-  global-config:
-    db-config:
-      logic-delete-field: deleted  # 逻辑删除字段名
-      logic-delete-value: 1        # 逻辑删除值
-      logic-not-delete-value: 0    # 逻辑未删除值
-      id-type: auto                # ID 类型：自增
-```
+我们用同一组 API 做对照：
 
-## MyBatis-Plus 配置
+- `GET /api/films?title=ACE&page=0&size=5`
+- `GET /api/films/by-category?category=Action`
+- `POST /api/films/{id}/rental-rate?rate=2.99`
 
-### 步骤 4：创建 MyBatis-Plus 配置类
-在 `com.example.demo.config` 包下创建 [MybatisPlusConfig.java](file:///d:/Github/sakila/demo/src/main/java/com/example/demo/config/MybatisPlusConfig.java)：
+### 1.1 分页模糊查询：JPA vs MP
+
+JPA 常见写法（你之前项目里就是这个思路）：
 
 ```java
-package com.example.demo.config;
+PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "rentalRate"));
+return filmRepository.findByTitleContainingIgnoreCase(title, pageable);
+```
 
-import com.baomidou.mybatisplus.annotation.DbType;
-import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
-import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
-import org.mybatis.spring.annotation.MapperScan;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+MyBatis-Plus 当前写法（你现在真实代码）：
 
-@Configuration
-@MapperScan("com.example.demo.mapper")  // 配置 Mapper 扫描
-public class MybatisPlusConfig {
-
-    /**
-     * 分页插件配置
-     * 知识点：PaginationInnerInterceptor 是 MyBatis-Plus 内置的分页插件
-     */
-    @Bean
-    public MybatisPlusInterceptor mybatisPlusInterceptor() {
-        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        // 添加分页拦截器
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
-        return interceptor;
-    }
+```java
+LambdaQueryWrapper<Film> wrapper = new LambdaQueryWrapper<>();
+if (StringUtils.hasText(title)) {
+    wrapper.like(Film::getTitle, title);
 }
+wrapper.orderByDesc(Film::getRentalRate);
+
+IPage<Film> filmPage = filmMapper.selectPage(new Page<>(safePage + 1L, safeSize), wrapper);
 ```
 
-## 实体类创建
+差异点：
 
-### 步骤 5：创建实体类包结构
-在 `com.example.demo.entity` 包下创建以下实体类，我们以 Sakila 数据库中最常用的 [customer](file:///d:/Github/sakila/postgres-sakila-db/postgres-sakila-schema.sql#L614-L625) 表为例：
+- JPA：更像“声明意图”，SQL 细节交给框架推导。
+- MP：更像“自己搭 SQL 条件”，控制感更强。
+- 注意页码：Spring Data 常用 0-based；MP 的 `Page` 是 1-based，所以代码里做了 `+1`。
+
+### 1.2 多表查询：JPA vs MP
+
+JPA 常见写法：
+
+- `@Query(nativeQuery = true)` + projection interface。
+
+MP 当前写法：
+
+- 直接在 `FilmMapper` 里 `@Select` 写 SQL：
 
 ```java
-package com.example.demo.entity;
-
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.experimental.Accessors;
-
-import java.io.Serializable;
-import java.time.LocalDateTime;
-
-/**
- * <p>
- * 客户实体类
- * </p>
- *
- * @author lingma
- * @since 2026-02-02
- */
-@Data
-@EqualsAndHashCode(callSuper = false)
-@Accessors(chain = true)
-@TableName("customer")
-public class Customer implements Serializable {
-
-    private static final long serialVersionUID = 1L;
-
-    /**
-     * 知识点：TableId 注解用于标识主键
-     * IdType.AUTO 表示自增长
-     */
-    @TableId(value = "customer_id", type = IdType.AUTO)
-    private Integer customerId;
-
-    private Integer storeId;
-
-    private String firstName;
-
-    private String lastName;
-
-    private String email;
-
-    private Integer addressId;
-
-    private Boolean activebool;
-
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime create_date;
-
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime lastUpdate;
-
-    private Boolean active;
-}
+@Select("""
+        select f.title as title, c.name as category
+        from film f
+        join film_category fc on fc.film_id = f.film_id
+        join category c on c.category_id = fc.category_id
+        where c.name = #{category}
+        """)
+List<Map<String, Object>> selectByCategory(@Param("category") String category);
 ```
 
-### 步骤 6：创建其他实体类
-类似地，为 Sakila 数据库中常用表创建实体类，例如 [film](file:///d:/Github/sakila/postgres-sakila-db/postgres-sakila-schema.sql#L575-L589) 表：
+差异点：
 
-```java
-package com.example.demo.entity;
+- JPA：投影接口很优雅，但复杂 SQL 改动时要来回看实体/投影。
+- MP：SQL 就在 Mapper，调优时非常直接。
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.experimental.Accessors;
+### 1.3 更新字段：JPA vs MP
 
-import java.io.Serializable;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
+JPA 典型是：
 
-/**
- * <p>
- * 电影实体类
- * </p>
- *
- * @author lingma
- * @since 2026-02-02
- */
-@Data
-@EqualsAndHashCode(callSuper = false)
-@Accessors(chain = true)
-@TableName("film")
-public class Film implements Serializable {
+1. `findById`
+2. `setXxx`
+3. `save`（依赖持久化上下文脏检查）
 
-    private static final long serialVersionUID = 1L;
+MP 当前是：
 
-    @TableId(value = "film_id", type = IdType.AUTO)
-    private Integer filmId;
+1. `selectById`
+2. `setXxx`
+3. `updateById`
 
-    private String title;
+差异点：
 
-    private String description;
+- JPA 更偏“对象状态驱动”。
+- MP 更偏“显式 SQL 操作”。
 
-    private String releaseYear;
+---
 
-    private Integer languageId;
+## 2) 在这个项目里，JPA 和 MP 的本质区别
 
-    private Integer originalLanguageId;
+| 维度 | JPA（你之前那版） | MyBatis-Plus（你现在这版） |
+|---|---|---|
+| 思维模型 | 面向对象映射（Entity 状态） | 面向表和 SQL |
+| 简单 CRUD | 很省代码 | 也省代码（`BaseMapper`） |
+| 动态条件 | `Specification/Criteria` 写起来偏重 | `LambdaQueryWrapper` 更直观 |
+| 复杂联表 | 常转 native SQL | 直接写 SQL，非常自然 |
+| SQL 可控性 | 中等（框架生成） | 高（你自己定义） |
+| 学习曲线 | ORM 概念更多 | SQL 能力要求更高 |
+| 调优体验 | 先看 ORM 生成 SQL | 直接盯 SQL 本身 |
 
-    private Integer rentalDuration;
+---
 
-    private BigDecimal rentalRate;
+## 3) 为什么你这个项目切 MP 后更容易“看懂 SQL 性能”
 
-    private Integer length;
+你项目里已经有：
 
-    private BigDecimal replacementCost;
+- SQL 耗时日志：`demo/src/main/java/com/example/demo/sakila/config/SqlSlowQueryListener.java`
+- DataSource 代理：`demo/src/main/java/com/example/demo/sakila/config/DataSourceProxyConfig.java`
+- Service 耗时 AOP：`demo/src/main/java/com/example/demo/sakila/aop/ServiceCostAspect.java`
 
-    private String rating;
+当你使用 MP 时，Mapper 里 SQL 更直观，看到慢日志后，通常可以直接定位到具体 SQL 片段，而不用先还原 ORM 生成链路。
 
-    private String specialFeatures;
+---
 
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime lastUpdate;
-}
+## 4) 最小实操：你现在就能跑的验证
+
+在 `demo` 目录启动：
+
+```bash
+.\mvnw.cmd spring-boot:run
 ```
 
-> 知识点：@TableName 注解指定映射的数据库表名；@TableId 指定主键；Lombok 注解减少样板代码。
+然后请求：
 
-## Mapper 接口开发
-
-### 步骤 7：创建 Mapper 接口
-在 `com.example.demo.mapper` 包下创建 [CustomerMapper.java](file:///d:/Github/sakila/demo/src/main/java/com/example/demo/mapper/CustomerMapper.java)：
-
-```java
-package com.example.demo.mapper;
-
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.example.demo.entity.Customer;
-import org.apache.ibatis.annotations.Mapper;
-
-/**
- * <p>
- * 客户表 Mapper 接口
- * </p>
- *
- * @author lingma
- * @since 2026-02-02
- */
-@Mapper
-public interface CustomerMapper extends BaseMapper<Customer> {
-
-}
+```bash
+curl "http://localhost:8080/api/films?title=ACE&page=0&size=5"
+curl "http://localhost:8080/api/films/by-category?category=Action"
+curl -X POST "http://localhost:8080/api/films/1/rental-rate?rate=2.99"
+curl "http://localhost:8080/api/films/debug/slow-sql"
 ```
 
-### 步骤 8：创建自定义查询方法
-在 CustomerMapper 中添加自定义查询方法：
+你会看到：
 
-```java
-package com.example.demo.mapper;
+- 正常 SQL 在控制台输出；
+- 超过阈值的 SQL 被打到 `SLOW_SQL`；
+- Service 方法耗时打到 `SERVICE_COST`。
 
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.example.demo.entity.Customer;
-import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Param;
+---
 
-import java.util.List;
+## 5) 如果你要“再对照一次 JPA 版本”怎么做
 
-/**
- * <p>
- * 客户表 Mapper 接口
- * </p>
- *
- * @author lingma
- * @since 2026-02-02
- */
-@Mapper
-public interface CustomerMapper extends BaseMapper<Customer> {
-    
-    /**
-     * 根据姓氏查询客户
-     * 知识点：MyBatis-Plus 支持自定义 SQL 查询
-     */
-    List<Customer> selectByLastName(@Param("lastName") String lastName);
-    
-    /**
-     * 分页查询活跃客户
-     * 知识点：使用 IPage 实现分页查询
-     */
-    IPage<Customer> selectActiveCustomers(Page<Customer> page, @Param("active") Boolean active);
-}
+你现在工作区是 MP 版本。想回看 JPA 写法，可以用 git 对比历史实现（建议新分支看）：
+
+```bash
+git switch -c review-jpa 5d61007
 ```
 
-### 步骤 9：创建对应的 XML 映射文件
-在 `resources/mapper` 目录下创建 CustomerMapper.xml 文件：
+回到当前 MP：
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.example.demo.mapper.CustomerMapper">
-
-    <!-- 根据姓氏查询客户 -->
-    <select id="selectByLastName" resultType="com.example.demo.entity.Customer">
-        SELECT * FROM customer WHERE last_name = #{lastName}
-    </select>
-    
-    <!-- 分页查询活跃客户 -->
-    <select id="selectActiveCustomers" resultType="com.example.demo.entity.Customer">
-        SELECT * FROM customer WHERE active = #{active}
-    </select>
-</mapper>
+```bash
+git switch main
 ```
 
-## Service 层开发
+也可以直接看某个文件演进：
 
-### 步骤 10：创建 Service 接口
-在 `com.example.demo.service` 包下创建 [ICustomerService.java](file:///d:/Github/sakila/demo/src/main/java/com/example/demo/service/ICustomerService.java)：
-
-```java
-package com.example.demo.service;
-
-import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.IService;
-import com.example.demo.entity.Customer;
-
-/**
- * <p>
- * 客户表 服务类
- * </p>
- *
- * @author lingma
- * @since 2026-02-02
- */
-public interface ICustomerService extends IService<Customer> {
-    
-    /**
-     * 获取活跃客户分页列表
-     * 知识点：IService 已经提供了基础的 CRUD 方法
-     */
-    IPage<Customer> getActiveCustomersWithPagination(int pageNum, int pageSize, Boolean active);
-    
-    /**
-     * 根据姓氏查找客户
-     */
-    java.util.List<Customer> findByLastName(String lastName);
-}
+```bash
+git diff 5d61007 -- demo/src/main/java/com/example/demo/sakila/service/FilmService.java
 ```
 
-### 步骤 11：创建 Service 实现类
-在 `com.example.demo.service.impl` 包下创建 [CustomerServiceImpl.java](file:///d:/Github/sakila/demo/src/main/java/com/example/demo/service/impl/CustomerServiceImpl.java)：
+---
 
-```java
-package com.example.demo.service.impl;
+## 6) 面试可直接说的 20 秒版本
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.demo.entity.Customer;
-import com.example.demo.mapper.CustomerMapper;
-import com.example.demo.service.ICustomerService;
-import org.springframework.stereotype.Service;
+在这个 Sakila 项目里，我们把 `Film` 链路从 JPA 改成了 MyBatis-Plus。  
+JPA 优势是对象映射一致性好、简单 CRUD 很顺；MyBatis-Plus 优势是 SQL 可控、复杂查询和调优更直接。  
+如果业务复杂联表多、强调 SQL 可解释性，我会优先 MP；如果领域建模复杂、对象关系重，我会优先 JPA。
 
-import java.util.List;
+---
 
-/**
- * <p>
- * 客户表 服务实现类
- * </p>
- *
- * @author lingma
- * @since 2026-02-02
- */
-@Service
-public class CustomerServiceImpl extends ServiceImpl<CustomerMapper, Customer> implements ICustomerService {
+## 7) 你接下来该怎么学（按这个项目）
 
-    @Override
-    public IPage<Customer> getActiveCustomersWithPagination(int pageNum, int pageSize, Boolean active) {
-        // 创建分页对象
-        Page<Customer> page = new Page<>(pageNum, pageSize);
-        
-        // 构造查询条件
-        QueryWrapper<Customer> wrapper = new QueryWrapper<>();
-        wrapper.eq("active", active);
-        
-        // 执行分页查询
-        return this.page(page, wrapper);
-    }
-
-    @Override
-    public List<Customer> findByLastName(String lastName) {
-        // 使用 QueryWrapper 构造查询条件
-        QueryWrapper<Customer> wrapper = new QueryWrapper<>();
-        wrapper.eq("last_name", lastName);
-        return this.list(wrapper);
-    }
-}
-```
-
-> 知识点：QueryWrapper 是 MyBatis-Plus 提供的条件构造器，可以链式调用构建复杂查询条件。
-
-## Controller 层开发
-
-### 步骤 12：创建 Controller 类
-在 `com.example.demo.controller` 包下创建 [CustomerController.java](file:///d:/Github/sakila/demo/src/main/java/com/example/demo/controller/CustomerController.java)：
-
-```java
-package com.example.demo.controller;
-
-import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.example.demo.entity.Customer;
-import com.example.demo.service.ICustomerService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
-/**
- * <p>
- * 客户前端控制器
- * </p>
- *
- * @author lingma
- * @since 2026-02-02
- */
-@RestController
-@RequestMapping("/customer")
-public class CustomerController {
-
-    @Autowired
-    private ICustomerService customerService;
-
-    /**
-     * 查询所有客户
-     * 知识点：IService 的 list() 方法无需实现，直接可用
-     */
-    @GetMapping("/all")
-    public List<Customer> getAllCustomers() {
-        return customerService.list();
-    }
-
-    /**
-     * 分页查询客户
-     */
-    @GetMapping("/page/{current}/{size}")
-    public IPage<Customer> getCustomersByPage(
-            @PathVariable int current,
-            @PathVariable int size) {
-        return customerService.page(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(current, size));
-    }
-
-    /**
-     * 根据ID获取客户详情
-     */
-    @GetMapping("/{id}")
-    public Customer getCustomerById(@PathVariable Integer id) {
-        return customerService.getById(id);
-    }
-
-    /**
-     * 创建新客户
-     */
-    @PostMapping
-    public boolean createCustomer(@RequestBody Customer customer) {
-        return customerService.save(customer);
-    }
-
-    /**
-     * 更新客户信息
-     */
-    @PutMapping
-    public boolean updateCustomer(@RequestBody Customer customer) {
-        return customerService.updateById(customer);
-    }
-
-    /**
-     * 删除客户
-     */
-    @DeleteMapping("/{id}")
-    public boolean deleteCustomer(@PathVariable Integer id) {
-        return customerService.removeById(id);
-    }
-
-    /**
-     * 分页查询活跃客户
-     */
-    @GetMapping("/active/{current}/{size}")
-    public IPage<Customer> getActiveCustomers(
-            @PathVariable int current,
-            @PathVariable int size,
-            @RequestParam(defaultValue = "true") Boolean active) {
-        return customerService.getActiveCustomersWithPagination(current, size, active);
-    }
-
-    /**
-     * 根据姓氏查找客户
-     */
-    @GetMapping("/lastname/{lastName}")
-    public List<Customer> getCustomersByLastName(@PathVariable String lastName) {
-        return customerService.findByLastName(lastName);
-    }
-}
-```
-
-## 实战案例
-
-### 步骤 13：运行并测试 API
-1. 启动应用程序：`mvn spring-boot:run`
-2. 访问以下 URL 测试功能：
-   - 获取所有客户：`GET http://localhost:8080/customer/all`
-   - 分页获取客户：`GET http://localhost:8080/customer/page/1/10`
-   - 根据姓氏查找：`GET http://localhost:8080/customer/lastname/Smith`
-
-### 步骤 14：创建更多业务逻辑
-让我们创建一个涉及多个表关联查询的复杂案例，例如查询客户的租赁历史：
-
-```java
-// 在 Rental 实体类中
-package com.example.demo.entity;
-
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.experimental.Accessors;
-
-import java.io.Serializable;
-import java.time.LocalDateTime;
-
-@Data
-@EqualsAndHashCode(callSuper = false)
-@Accessors(chain = true)
-@TableName("rental")
-public class Rental implements Serializable {
-
-    private static final long serialVersionUID = 1L;
-
-    @TableId(value = "rental_id", type = IdType.AUTO)
-    private Integer rentalId;
-
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime rentalDate;
-
-    private Integer inventoryId;
-
-    private Integer customerId;
-
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime returnDate;
-
-    private Integer staffId;
-
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime lastUpdate;
-}
-```
-
-```java
-// 在 RentalMapper 中
-@Mapper
-public interface RentalMapper extends BaseMapper<Rental> {
-    // 使用原生 SQL 连接查询客户租赁历史
-    @Select("SELECT r.*, c.first_name, c.last_name, f.title " +
-            "FROM rental r " +
-            "JOIN customer c ON r.customer_id = c.customer_id " +
-            "JOIN inventory i ON r.inventory_id = i.inventory_id " +
-            "JOIN film f ON i.film_id = f.film_id " +
-            "WHERE r.customer_id = #{customerId} " +
-            "ORDER BY r.rental_date DESC LIMIT #{limit}")
-    List<Map<String, Object>> selectRentalHistory(@Param("customerId") Integer customerId, @Param("limit") Integer limit);
-}
-```
-
-## 高级特性
-
-### 条件构造器使用
-MyBatis-Plus 提供了强大的条件构造器，可以轻松构建复杂查询：
-
-```java
-// 查询姓氏包含特定字符的活跃客户
-QueryWrapper<Customer> wrapper = new QueryWrapper<>();
-wrapper.like("last_name", "SM").eq("active", true);
-
-// 更复杂的查询
-wrapper.gt("customer_id", 100)  // ID大于100
-      .orderByDesc("create_date")  // 按创建日期降序排列
-      .last("LIMIT 10");  // 添加SQL片段
-```
-
-### 自动填充功能
-在实体类中添加自动填充字段：
-
-```java
-@TableField(fill = FieldFill.INSERT)  // 插入时自动填充
-@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-private LocalDateTime createTime;
-
-@TableField(fill = FieldFill.INSERT_UPDATE)  // 插入和更新时自动填充
-@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-private LocalDateTime updateTime;
-```
-
-创建自动填充处理器：
-
-```java
-@Component
-public class MyMetaObjectHandler implements MetaObjectHandler {
-    @Override
-    public void insertFill(MetaObject metaObject) {
-        this.strictInsertFill(metaObject, "createTime", LocalDateTime.class, LocalDateTime.now());
-        this.strictInsertFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
-    }
-
-    @Override
-    public void updateFill(MetaObject metaObject) {
-        this.strictUpdateFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
-    }
-}
-```
-
-### 乐观锁插件
-当多用户同时操作同一数据时，使用乐观锁防止数据冲突：
-
-```java
-// 在实体类中添加版本字段
-@TableField(fill = FieldFill.INSERT)
-@Version
-private Integer version;
-```
-
-在配置类中添加乐观锁插件：
-
-```java
-@Bean
-public MybatisPlusInterceptor mybatisPlusInterceptor() {
-    MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-    // 添加乐观锁插件
-    interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
-    // 添加分页插件
-    interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
-    return interceptor;
-}
-```
-
-## 总结
-
-通过以上步骤，我们完成了：
-1. 配置 MyBatis-Plus 与 Sakila 数据库的集成
-2. 创建了实体类、Mapper、Service 和 Controller
-3. 实现了基础的 CRUD 操作
-4. 使用了分页查询、条件查询等高级功能
-5. 了解了条件构造器的使用方法
-
-MyBatis-Plus 大幅减少了数据访问层的样板代码，让开发者专注于业务逻辑实现。在实际企业开发中，这种工具能够显著提升开发效率。
+1. 先只盯 `FilmController -> FilmService -> FilmMapper` 这一条链路跑通。  
+2. 每改一个查询条件，就看一次慢 SQL 日志和 `EXPLAIN`。  
+3. 把 `by-category` 从 `Map` 返回改成 DTO 映射，练一次“可维护性优化”。  
+4. 再决定要不要补 `Customer` 的 MP 全套（Entity/Mapper/Service/Controller）。  

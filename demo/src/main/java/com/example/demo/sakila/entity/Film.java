@@ -1,28 +1,21 @@
 package com.example.demo.sakila.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.math.BigDecimal;
 
-@Entity
-@Table(name = "film")
+@TableName("film")
 public class Film {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "film_id", nullable = false)
-    private Long id;
-    @Column(nullable = false)
-    private String title;
-    @Column(name = "rental_rate")
-    private BigDecimal rentalRate;
-    private Integer length;
 
-    protected Film() {
-    }
+    @TableId(value = "film_id", type = IdType.AUTO)
+    private Long id;
+
+    private String title;
+
+    private BigDecimal rentalRate;
+
+    private Integer length;
 
     public Long getId() {
         return id;
@@ -38,6 +31,10 @@ public class Film {
 
     public Integer getLength() {
         return length;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
     }
 
     public void setTitle(String title) {

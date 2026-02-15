@@ -1,11 +1,11 @@
 package com.example.demo.sakila.web;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.example.demo.sakila.dto.FilmDto;
 import com.example.demo.sakila.dto.FilmTitleCategoryDto;
 import com.example.demo.sakila.service.FilmService;
 import java.math.BigDecimal;
 import java.util.List;
-import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +23,7 @@ public class FilmController {
     }
 
     @GetMapping
-    public Page<FilmDto> page(
+    public IPage<FilmDto> page(
             @RequestParam(defaultValue = "") String title,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {

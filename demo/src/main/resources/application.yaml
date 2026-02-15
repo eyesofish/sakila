@@ -3,13 +3,12 @@ spring:
     url: jdbc:mysql://localhost:3306/sakila?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
     username: root
     password: pass
-  jpa:
-    hibernate:
-      ddl-auto: none # 关键：不要让 Hibernate 改表
-    open-in-view: false # 关键：避免“事务外懒加载”把问题藏起来
-    properties:
-      hibernate.format_sql: true
-      hibernate.jdbc.time_zone: UTC
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+
 app:
   sql:
     slow-threshold-ms: 200
